@@ -208,7 +208,7 @@
   <div class="header-card">
     <h1>奇美線上簽到助手</h1>
     <p>掃描會議 QR Code ‧ 自動填單簽到</p>
-    <div class="version-badge">📌 版本：v1.3.0 (2026-07-31 支援網址帶入人事號)</div>
+    <div class="version-badge">📌 版本：v1.3.1 (2026-07-31 介面精簡版)</div>
   </div>
 
   <!-- 主要操作卡片 -->
@@ -226,18 +226,12 @@
     <span class="setup-toggle" onclick="toggleGasUrlInput()">修改 API 網址設定</span>
 
     <div class="btn-grid" style="margin-top: 16px;">
-      <!-- 按鈕 1：即時相機視訊掃描 (頂層網頁 100% 支援) -->
+      <!-- 主按鈕：即時相機視訊掃描 -->
       <button class="btn btn-primary" id="startCamBtn" onclick="startLiveCamera()">
         📷 開啟相機即時掃描
       </button>
 
-      <!-- 按鈕 2：拍攝相片上傳 -->
-      <input type="file" id="cameraFileInput" accept="image/*" capture="environment" style="display:none" onchange="handleFileSelect(this)">
-      <button class="btn btn-success" onclick="document.getElementById('cameraFileInput').click()">
-        📸 拍照上傳 QR Code
-      </button>
-
-      <!-- 按鈕 3：從相簿選取照片 -->
+      <!-- 備用按鈕：從相簿選取截圖 (用於 LINE / 訊息收到的 QR Code) -->
       <input type="file" id="albumFileInput" accept="image/*" style="display:none" onchange="handleFileSelect(this)">
       <button class="btn btn-warning" onclick="document.getElementById('albumFileInput').click()">
         🖼️ 從相簿選擇 QR Code 截圖
