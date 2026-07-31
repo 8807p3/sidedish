@@ -208,7 +208,7 @@
   <div class="header-card">
     <h1>奇美線上簽到助手</h1>
     <p>掃描會議 QR Code ‧ 自動填單簽到</p>
-    <div class="version-badge">📌 版本：v1.3.1 (2026-07-31 介面精簡版)</div>
+    <div class="version-badge">📌 版本：v1.5.0 (2026-07-31 PC 快捷貼上雙引擎版)</div>
   </div>
 
   <!-- 主要操作卡片 -->
@@ -347,7 +347,7 @@
       });
   }
 
-  // 檔案選取 / 拍攝照片解析 (jsQR 最佳化防凍結)
+  // 檔案選取 / 拍攝照片解析 (原生 BarcodeDetector + jsQR 雙引擎強效解析)
   function handleFileSelect(input) {
     if (!input.files || input.files.length === 0) return;
     const file = input.files[0];
@@ -365,41 +365,71 @@
         showStatus("❌ 載入圖片失敗，檔案格式可能不受支援！", "fail");
       };
 
-      img.onload = function() {
+      img.onload = async function() {
         try {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-
-          // 自動針對高解析度手機照片進行同比例縮放 (最高限制 1000px)，防止大圖導致 JS 凍結
-          const MAX_SIZE = 1000;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > MAX_SIZE || height > MAX_SIZE) {
-            if (width > height) {
-              height = Math.round((height * MAX_SIZE) / width);
-              width = MAX_SIZE;
-            } else {
-              width = Math.round((width * MAX_SIZE) / height);
-              height = MAX_SIZE;
+          // 引擎 1：嘗試手機/瀏覽器原生 BarcodeDetector API (硬體加速、支援傾斜與微小 QR Code)
+          if ('BarcodeDetector' in window) {
+            try {
+              const detector = new BarcodeDetector({ formats: ['qr_code'] });
+              const barcodes = await detector.detect(img);
+              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                processScanResult(barcodes[0].rawValue);
+                return;
+              }
+            } catch (err) {
+              console.warn("BarcodeDetector native fallback:", err);
             }
           }
 
-          canvas.width = width;
-          canvas.height = height;
-          ctx.drawImage(img, 0, 0, width, height);
+          // 1. 優先嘗試合起最精準的「原始尺寸」解碼 (針對 PC 截圖與細微 QR Code 100% 保持銳利邊界)
+          const scanCanvasData = (cvs) => {
+            const cctx = cvs.getContext('2d');
+            const imgD = cctx.getImageData(0, 0, cvs.width, cvs.height);
+            let codeRes = jsQR(imgD.data, imgD.width, imgD.height, { inversionAttempts: "attemptBoth" });
+            return codeRes ? codeRes.data : null;
+          };
 
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          // 嘗試 1：原圖全解析度掃描 (不縮放，避免模糊化小尺寸 QR Code 方塊)
+          const origCvs = document.createElement('canvas');
+          origCvs.width = img.width;
+          origCvs.height = img.height;
+          const origCtx = origCvs.getContext('2d');
+          origCtx.drawImage(img, 0, 0);
 
-          let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
-          if (!code || !code.data) {
-            code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+          let qrData = scanCanvasData(origCvs);
+
+          // 嘗試 2：若原圖尺寸極大 (>1600px) 且未找到，嘗試微幅同比例降採樣
+          if (!qrData && (img.width > 1600 || img.height > 1600)) {
+            const scaleCvs = document.createElement('canvas');
+            const scale = 1600 / Math.max(img.width, img.height);
+            scaleCvs.width = Math.round(img.width * scale);
+            scaleCvs.height = Math.round(img.height * scale);
+            const scaleCtx = scaleCvs.getContext('2d');
+            scaleCtx.drawImage(img, 0, 0, scaleCvs.width, scaleCvs.height);
+            qrData = scanCanvasData(scaleCvs);
           }
 
-          if (code && code.data) {
-            processScanResult(code.data);
+          // 嘗試 3：二值化對比度強化處理 (專治畫面反光、偏暗或灰階模糊的截圖)
+          if (!qrData) {
+            const binarizedCvs = document.createElement('canvas');
+            binarizedCvs.width = origCvs.width;
+            binarizedCvs.height = origCvs.height;
+            const bCtx = binarizedCvs.getContext('2d');
+            const imgData = origCtx.getImageData(0, 0, origCvs.width, origCvs.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+              const gray = (d[i] + d[i + 1] + d[i + 2]) / 3;
+              const val = gray < 128 ? 0 : 255;
+              d[i] = val; d[i + 1] = val; d[i + 2] = val;
+            }
+            bCtx.putImageData(imgData, 0, 0);
+            qrData = scanCanvasData(binarizedCvs);
+          }
+
+          if (qrData) {
+            processScanResult(qrData);
           } else {
-            showStatus("❌ 無法在照片中辨識出 QR Code！\n💡 建議：請對準 QR Code 重拍，確保圖像清晰無反光與裁切。", "fail");
+            showStatus("❌ 無法在照片中辨識出 QR Code！\n💡 建議：請確認照片包含完整的 QR Code 黑白方塊，若為全螢幕截圖可裁切保留 QR Code 區域重新上傳。", "fail");
           }
         } catch (err) {
           showStatus("❌ 解析照片過程發生異常: " + err.message, "fail");
@@ -470,6 +500,35 @@
     if (video) video.style.display = 'none';
     document.getElementById('startCamBtn').style.display = 'block';
   }
+
+  // 💻 專為 PC 測試優化：支援鍵盤 Ctrl+V 直接貼上剪貼簿照片
+  window.addEventListener('paste', function(e) {
+    const items = (e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData))?.items;
+    if (!items) return;
+    for (let item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          showStatus("📋 已偵測到剪貼簿照片，正在解析中...", "loading");
+          handleFileSelect({ files: [file] });
+          break;
+        }
+      }
+    }
+  });
+
+  // 💻 專為 PC 測試優化：支援滑鼠直接拖曳圖片檔案至網頁解析
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (file.type.indexOf('image') !== -1) {
+        showStatus("📁 已偵測到拖曳照片，正在解析中...", "loading");
+        handleFileSelect({ files: [file] });
+      }
+    }
+  });
 </script>
 
 </body>
