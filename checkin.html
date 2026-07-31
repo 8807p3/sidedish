@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>奇美醫院會議 QR Code 自動簽到</title>
+
+  <!-- Google Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+  <!-- 二維碼解碼庫 (GitHub Pages 頂層網頁可 100% 正常連線 CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+
+  <style>
+    :root {
+      --primary: #0284c7;
+      --primary-dark: #0369a1;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .app-container {
+      width: 100%;
+      max-width: 440px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .header-card {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: white;
+      padding: 24px 20px;
+      border-radius: 20px;
+      box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.3);
+      text-align: center;
+    }
+
+    .header-card h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .header-card p {
+      margin: 6px 0 0 0;
+      font-size: 13px;
+      opacity: 0.9;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+      border: 1px solid #f1f5f9;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+      text-align: left;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 15px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      outline: none;
+      transition: all 0.2s;
+      background: #f8fafc;
+    }
+
+    .form-group input:focus {
+      border-color: var(--primary);
+      background: white;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+    }
+
+    .btn-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25); }
+    .btn-success { background: var(--success); color: white; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25); }
+    .btn-warning { background: #f59e0b; color: white; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25); }
+
+    #videoPreview {
+      width: 100%;
+      max-height: 260px;
+      border-radius: 14px;
+      background: #0f172a;
+      display: none;
+      object-fit: cover;
+      margin-top: 12px;
+    }
+
+    .status-box {
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      font-weight: 500;
+      display: block;
+      text-align: left;
+      background: #f8fafc;
+      border: 1.5px dashed #cbd5e1;
+      color: var(--text-muted);
+    }
+
+    .status-box.loading {
+      background: #f0f9ff;
+      border-color: #7dd3fc;
+      color: #0369a1;
+    }
+
+    .status-box.success {
+      background: #ecfdf5;
+      border-color: #6ee7b7;
+      color: #047857;
+    }
+
+    .status-box.fail {
+      background: #fef2f2;
+      border-color: #fca5a5;
+      color: #b91c1c;
+    }
+
+    .setup-toggle {
+      font-size: 12px;
+      color: var(--primary);
+      text-decoration: underline;
+      cursor: pointer;
+      text-align: right;
+      display: block;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-container">
+
+  <!-- 標題卡片 -->
+  <div class="header-card">
+    <h1>奇美線上簽到助手</h1>
+    <p>掃描會議 QR Code ‧ 自動填單簽到</p>
+  </div>
+
+  <!-- 主要操作卡片 -->
+  <div class="card">
+    <div class="form-group">
+      <label>人事號碼 (員工編號)</label>
+      <input type="text" id="userIdInput" value="8807P3" placeholder="例如: 8807P3">
+    </div>
+
+    <!-- 隱藏的 GAS Web App 網址設定區 (設定一次會自動記憶) -->
+    <div class="form-group" id="gasUrlGroup">
+      <label>GAS 後端 API 網址</label>
+      <input type="text" id="gasUrlInput" placeholder="貼上您的 GAS Web App 網址 (https://script.google.com/macros/s/.../exec)">
+    </div>
+    <span class="setup-toggle" onclick="toggleGasUrlInput()">修改 API 網址設定</span>
+
+    <div class="btn-grid" style="margin-top: 16px;">
+      <!-- 按鈕 1：即時相機視訊掃描 (頂層網頁 100% 支援) -->
+      <button class="btn btn-primary" id="startCamBtn" onclick="startLiveCamera()">
+        📷 開啟相機即時掃描
+      </button>
+
+      <!-- 按鈕 2：拍攝相片上傳 -->
+      <input type="file" id="cameraFileInput" accept="image/*" capture="environment" style="display:none" onchange="handleFileSelect(this)">
+      <button class="btn btn-success" onclick="document.getElementById('cameraFileInput').click()">
+        📸 拍照上傳 QR Code
+      </button>
+
+      <!-- 按鈕 3：從相簿選取照片 -->
+      <input type="file" id="albumFileInput" accept="image/*" style="display:none" onchange="handleFileSelect(this)">
+      <button class="btn btn-warning" onclick="document.getElementById('albumFileInput').click()">
+        🖼️ 從相簿選擇 QR Code 截圖
+      </button>
+    </div>
+
+    <video id="videoPreview" playsinline></video>
+  </div>
+
+  <!-- 結果顯示區域 -->
+  <div class="card">
+    <div id="statusBox" class="status-box">💡 準備就緒！請點擊上方按鈕掃描或拍攝會議 QR Code</div>
+  </div>
+
+</div>
+
+<script>
+  let isProcessing = false;
+  let videoStream = null;
+  let animFrameId = null;
+
+  // 初始化時讀取 LocalStorage 記憶的設定
+  window.addEventListener('DOMContentLoaded', () => {
+    const savedUserId = localStorage.getItem('chimei_user_id');
+    if (savedUserId) document.getElementById('userIdInput').value = savedUserId;
+
+    const savedGasUrl = localStorage.getItem('chimei_gas_url');
+    if (savedGasUrl) {
+      document.getElementById('gasUrlInput').value = savedGasUrl;
+      document.getElementById('gasUrlGroup').style.display = 'none';
+    }
+  });
+
+  function toggleGasUrlInput() {
+    const group = document.getElementById('gasUrlGroup');
+    group.style.display = group.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function showStatus(msg, type) {
+    const box = document.getElementById('statusBox');
+    box.className = 'status-box ' + (type || '');
+    box.innerText = msg;
+  }
+
+  function processScanResult(qrCodeUrl) {
+    if (isProcessing) return;
+    isProcessing = true;
+
+    stopLiveCamera();
+
+    const userId = document.getElementById('userIdInput').value.trim();
+    const gasUrl = document.getElementById('gasUrlInput').value.trim();
+
+    // 記憶輸入值
+    localStorage.setItem('chimei_user_id', userId);
+    if (gasUrl) localStorage.setItem('chimei_gas_url', gasUrl);
+
+    if (!gasUrl) {
+      showStatus("⚠️ 請先設定 GAS 後端 API 網址！\n(點擊「修改 API 網址設定」貼上您的 Google Apps Script Web App 部署網址)", "fail");
+      isProcessing = false;
+      return;
+    }
+
+    showStatus("🔍 辨識成功！內容：\n" + qrCodeUrl + "\n\n正在連線 GAS 後端為 [" + userId + "] 簽到中...", "loading");
+
+    // 發送 GET 請求至 GAS 後端 Web App
+    const targetApiUrl = `${gasUrl}?url=${encodeURIComponent(qrCodeUrl)}&user=${encodeURIComponent(userId)}`;
+
+    fetch(targetApiUrl)
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "success") {
+          const isSuccess = data.message.includes("✅") || data.message.includes("已簽到");
+          showStatus(data.message, isSuccess ? "success" : "fail");
+        } else {
+          showStatus("❌ 簽到失敗：" + data.message, "fail");
+        }
+        setTimeout(() => { isProcessing = false; }, 4000);
+      })
+      .catch(err => {
+        showStatus("❌ 後端連線異常: " + err.message + "\n請檢查 GAS API 網址是否正確部署為【所有人】皆可存取。", "fail");
+        setTimeout(() => { isProcessing = false; }, 4000);
+      });
+  }
+
+  // 檔案選取 / 拍攝照片解析 (jsQR)
+  function handleFileSelect(input) {
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+
+    showStatus("🔍 正在解析照片中...", "loading");
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0, img.width, img.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+        if (!code || !code.data) {
+          code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "onlyInvert" });
+        }
+
+        if (code && code.data) {
+          processScanResult(code.data);
+        } else {
+          showStatus("❌ 無法在照片中辨識出 QR Code！\n💡 建議：請對準 QR Code 重拍，確保圖像清晰無反光。", "fail");
+        }
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  }
+
+  // 即時視訊相機掃描
+  async function startLiveCamera() {
+    const video = document.getElementById('videoPreview');
+    const camBtn = document.getElementById('startCamBtn');
+    camBtn.style.display = 'none';
+    showStatus("📷 正在啟動鏡頭，請允許相機權限...", "loading");
+
+    try {
+      const constraints = {
+        video: { facingMode: { ideal: "environment" } }
+      };
+      
+      videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = videoStream;
+      video.style.display = 'block';
+      await video.play();
+
+      showStatus("📷 相機運作中！請將鏡頭對準會議 QR Code...", "loading");
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+
+      function tick() {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+          
+          if (code && code.data) {
+            processScanResult(code.data);
+            return;
+          }
+        }
+        if (!isProcessing) {
+          animFrameId = requestAnimationFrame(tick);
+        }
+      }
+      animFrameId = requestAnimationFrame(tick);
+
+    } catch (err) {
+      showStatus("⚠️ 無法連線視訊鏡頭 (" + err.name + ")\n請改點擊【📸 拍照上傳 QR Code】按鈕！", "fail");
+      camBtn.style.display = 'block';
+      video.style.display = 'none';
+    }
+  }
+
+  function stopLiveCamera() {
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    if (videoStream) {
+      videoStream.getTracks().forEach(track => track.stop());
+      videoStream = null;
+    }
+    const video = document.getElementById('videoPreview');
+    if (video) video.style.display = 'none';
+    document.getElementById('startCamBtn').style.display = 'block';
+  }
+</script>
+
+</body>
+</html>
