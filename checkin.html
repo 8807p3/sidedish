@@ -69,6 +69,18 @@
       opacity: 0.9;
     }
 
+    .version-badge {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 3px 10px;
+      background: rgba(255, 255, 255, 0.22);
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      backdrop-filter: blur(4px);
+    }
+
     .card {
       background: var(--card-bg);
       border-radius: 18px;
@@ -196,6 +208,7 @@
   <div class="header-card">
     <h1>奇美線上簽到助手</h1>
     <p>掃描會議 QR Code ‧ 自動填單簽到</p>
+    <div class="version-badge">📌 版本：v1.2.1 (2026-07-31 預設 API 版)</div>
   </div>
 
   <!-- 主要操作卡片 -->
@@ -205,10 +218,10 @@
       <input type="text" id="userIdInput" value="8807P3" placeholder="例如: 8807P3">
     </div>
 
-    <!-- 隱藏的 GAS Web App 網址設定區 (設定一次會自動記憶) -->
-    <div class="form-group" id="gasUrlGroup">
+    <!-- 隱藏的 GAS Web App 網址設定區 (預設已內建) -->
+    <div class="form-group" id="gasUrlGroup" style="display:none;">
       <label>GAS 後端 API 網址</label>
-      <input type="text" id="gasUrlInput" placeholder="貼上您的 GAS Web App 網址 (https://script.google.com/macros/s/.../exec)">
+      <input type="text" id="gasUrlInput" value="https://script.google.com/macros/s/AKfycbxRtj-JSJCYY4XQi5w3KURvl9IQrt9mTB0VZQgdwCVw3HVAXuUrwH3Ccvx30b1jOrI/exec" placeholder="貼上您的 GAS Web App 網址">
     </div>
     <span class="setup-toggle" onclick="toggleGasUrlInput()">修改 API 網址設定</span>
 
@@ -239,9 +252,15 @@
     <div id="statusBox" class="status-box">💡 準備就緒！請點擊上方按鈕掃描或拍攝會議 QR Code</div>
   </div>
 
+  <!-- 底部版本資訊 -->
+  <div style="text-align: center; color: var(--text-muted); font-size: 11px; margin-top: 14px; opacity: 0.8;">
+    奇美自動簽到助手 ‧ 版本 v1.2.0 (2026-07-31)
+  </div>
+
 </div>
 
 <script>
+  const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbxRtj-JSJCYY4XQi5w3KURvl9IQrt9mTB0VZQgdwCVw3HVAXuUrwH3Ccvx30b1jOrI/exec";
   let isProcessing = false;
   let videoStream = null;
   let animFrameId = null;
@@ -251,7 +270,7 @@
     const savedUserId = localStorage.getItem('chimei_user_id');
     if (savedUserId) document.getElementById('userIdInput').value = savedUserId;
 
-    const savedGasUrl = localStorage.getItem('chimei_gas_url');
+    const savedGasUrl = localStorage.getItem('chimei_gas_url') || DEFAULT_GAS_URL;
     if (savedGasUrl) {
       document.getElementById('gasUrlInput').value = savedGasUrl;
       document.getElementById('gasUrlGroup').style.display = 'none';
@@ -310,7 +329,7 @@
       });
   }
 
-  // 檔案選取 / 拍攝照片解析 (jsQR)
+  // 檔案選取 / 拍攝照片解析 (jsQR 最佳化防凍結)
   function handleFileSelect(input) {
     if (!input.files || input.files.length === 0) return;
     const file = input.files[0];
@@ -318,26 +337,54 @@
     showStatus("🔍 正在解析照片中...", "loading");
 
     const reader = new FileReader();
+    reader.onerror = function() {
+      showStatus("❌ 讀取照片檔案失敗，請重新嘗試！", "fail");
+    };
+
     reader.onload = function(e) {
       const img = new Image();
+      img.onerror = function() {
+        showStatus("❌ 載入圖片失敗，檔案格式可能不受支援！", "fail");
+      };
+
       img.onload = function() {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0, img.width, img.height);
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        
-        let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
-        if (!code || !code.data) {
-          code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "onlyInvert" });
-        }
+          // 自動針對高解析度手機照片進行同比例縮放 (最高限制 1000px)，防止大圖導致 JS 凍結
+          const MAX_SIZE = 1000;
+          let width = img.width;
+          let height = img.height;
 
-        if (code && code.data) {
-          processScanResult(code.data);
-        } else {
-          showStatus("❌ 無法在照片中辨識出 QR Code！\n💡 建議：請對準 QR Code 重拍，確保圖像清晰無反光。", "fail");
+          if (width > MAX_SIZE || height > MAX_SIZE) {
+            if (width > height) {
+              height = Math.round((height * MAX_SIZE) / width);
+              width = MAX_SIZE;
+            } else {
+              width = Math.round((width * MAX_SIZE) / height);
+              height = MAX_SIZE;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+          let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+          if (!code || !code.data) {
+            code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+          }
+
+          if (code && code.data) {
+            processScanResult(code.data);
+          } else {
+            showStatus("❌ 無法在照片中辨識出 QR Code！\n💡 建議：請對準 QR Code 重拍，確保圖像清晰無反光與裁切。", "fail");
+          }
+        } catch (err) {
+          showStatus("❌ 解析照片過程發生異常: " + err.message, "fail");
         }
       };
       img.src = e.target.result;
