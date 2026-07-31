@@ -208,7 +208,7 @@
   <div class="header-card">
     <h1>奇美線上簽到助手</h1>
     <p>掃描會議 QR Code ‧ 自動填單簽到</p>
-    <div class="version-badge">📌 版本：v1.2.1 (2026-07-31 預設 API 版)</div>
+    <div class="version-badge">📌 版本：v1.3.0 (2026-07-31 支援網址帶入人事號)</div>
   </div>
 
   <!-- 主要操作卡片 -->
@@ -265,10 +265,34 @@
   let videoStream = null;
   let animFrameId = null;
 
-  // 初始化時讀取 LocalStorage 記憶的設定
+  // 初始化時讀取 URL 網址帶入的人事號與 LocalStorage 記憶設定
   window.addEventListener('DOMContentLoaded', () => {
-    const savedUserId = localStorage.getItem('chimei_user_id');
-    if (savedUserId) document.getElementById('userIdInput').value = savedUserId;
+    // 支援多種網址格式帶入人事號：?user=8807P3 或 ?8807P3 或 #8807P3
+    const urlParams = new URLSearchParams(window.location.search);
+    let urlUser = urlParams.get('user') || urlParams.get('id') || urlParams.get('u');
+
+    if (!urlUser && window.location.search) {
+      const rawSearch = window.location.search.substring(1).trim();
+      if (/^[a-zA-Z0-9]+$/.test(rawSearch)) {
+        urlUser = rawSearch;
+      }
+    }
+
+    if (!urlUser && window.location.hash) {
+      const rawHash = window.location.hash.substring(1).trim();
+      if (/^[a-zA-Z0-9]+$/.test(rawHash)) {
+        urlUser = rawHash;
+      }
+    }
+
+    if (urlUser) {
+      const cleanUser = urlUser.toUpperCase();
+      document.getElementById('userIdInput').value = cleanUser;
+      localStorage.setItem('chimei_user_id', cleanUser);
+    } else {
+      const savedUserId = localStorage.getItem('chimei_user_id');
+      if (savedUserId) document.getElementById('userIdInput').value = savedUserId;
+    }
 
     const savedGasUrl = localStorage.getItem('chimei_gas_url') || DEFAULT_GAS_URL;
     if (savedGasUrl) {
