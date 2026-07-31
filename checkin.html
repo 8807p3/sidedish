@@ -10,8 +10,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 
-  <!-- 二維碼解碼庫 (GitHub Pages 頂層網頁可 100% 正常連線 CDN) -->
+  <!-- 二維碼解碼庫 (jsQR + ZXing 雙重引擎，支援 Chrome 恐龍圓點二維碼) -->
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 
   <style>
     :root {
@@ -347,7 +348,7 @@
       });
   }
 
-  // 檔案選取 / 拍攝照片解析 (原生 BarcodeDetector + jsQR 雙引擎強效解析)
+  // 檔案選取 / 拍攝照片解析 (ZXing 工業級 + BarcodeDetector + jsQR 膨脹多重強效解析)
   function handleFileSelect(input) {
     if (!input.files || input.files.length === 0) return;
     const file = input.files[0];
@@ -367,7 +368,21 @@
 
       img.onload = async function() {
         try {
-          // 引擎 1：嘗試手機/瀏覽器原生 BarcodeDetector API (硬體加速、支援傾斜與微小 QR Code)
+          // 引擎 1：ZXing 工業級二維碼解碼器 (專門處理 Chrome 恐龍圓點條碼與中央 Logo)
+          if (typeof ZXing !== 'undefined') {
+            try {
+              const zxingReader = new ZXing.BrowserQRCodeReader();
+              const result = await zxingReader.decodeFromImageElement(img);
+              if (result && result.text) {
+                processScanResult(result.text);
+                return;
+              }
+            } catch (zErr) {
+              console.log("ZXing fallback to next pass");
+            }
+          }
+
+          // 引擎 2：嘗試原生 BarcodeDetector API (硬體晶片加速)
           if ('BarcodeDetector' in window) {
             try {
               const detector = new BarcodeDetector({ formats: ['qr_code'] });
@@ -377,11 +392,11 @@
                 return;
               }
             } catch (err) {
-              console.warn("BarcodeDetector native fallback:", err);
+              console.warn("BarcodeDetector fallback:", err);
             }
           }
 
-          // 1. 優先嘗試合起最精準的「原始尺寸」解碼 (針對 PC 截圖與細微 QR Code 100% 保持銳利邊界)
+          // 引擎 3：jsQR 多重解析度與膨脹運算 (Dilation - 將恐龍圓點圖案接合為正方形模組)
           const scanCanvasData = (cvs) => {
             const cctx = cvs.getContext('2d');
             const imgD = cctx.getImageData(0, 0, cvs.width, cvs.height);
@@ -389,16 +404,29 @@
             return codeRes ? codeRes.data : null;
           };
 
-          // 嘗試 1：原圖全解析度掃描 (不縮放，避免模糊化小尺寸 QR Code 方塊)
+          // 嘗試 A：原圖全解析度直掃 (不縮放，避免模糊化小尺寸 QR Code 方塊)
           const origCvs = document.createElement('canvas');
           origCvs.width = img.width;
           origCvs.height = img.height;
           const origCtx = origCvs.getContext('2d');
           origCtx.drawImage(img, 0, 0);
-
           let qrData = scanCanvasData(origCvs);
 
-          // 嘗試 2：若原圖尺寸極大 (>1600px) 且未找到，嘗試微幅同比例降採樣
+          // 嘗試 B：影像膨脹 (Dilation - 4 方向位移沉積，將點狀 QR Code 的圓點間隙填滿)
+          if (!qrData) {
+            const dilateCvs = document.createElement('canvas');
+            dilateCvs.width = img.width;
+            dilateCvs.height = img.height;
+            const dCtx = dilateCvs.getContext('2d');
+            dCtx.drawImage(img, 0, 0);
+            dCtx.drawImage(img, -1, 0);
+            dCtx.drawImage(img, 1, 0);
+            dCtx.drawImage(img, 0, -1);
+            dCtx.drawImage(img, 0, 1);
+            qrData = scanCanvasData(dilateCvs);
+          }
+
+          // 嘗試 C：大圖降採樣 (1600px)
           if (!qrData && (img.width > 1600 || img.height > 1600)) {
             const scaleCvs = document.createElement('canvas');
             const scale = 1600 / Math.max(img.width, img.height);
@@ -409,7 +437,7 @@
             qrData = scanCanvasData(scaleCvs);
           }
 
-          // 嘗試 3：二值化對比度強化處理 (專治畫面反光、偏暗或灰階模糊的截圖)
+          // 嘗試 D：二值化對比度強化處理 (專治畫面反光、偏暗或灰階模糊的截圖)
           if (!qrData) {
             const binarizedCvs = document.createElement('canvas');
             binarizedCvs.width = origCvs.width;
